@@ -1,0 +1,460 @@
+{
+  "schema": "build-helpers-cli-surface/post-m0-plugin-v1",
+  "captured_at": "2026-07-28",
+  "captured_from": [
+    {
+      "id": "canonical",
+      "role": "ai-shared-lib canonical module (source of record; SC-MODELROSTER's argv note applies here)",
+      "path": "ai-shared-lib/go/build-helpers",
+      "commit": "e696d916aea69587d26d670568c02986da6c0c79"
+    },
+    {
+      "id": "plugin-embedded",
+      "role": "the copy vendored into the delivery-agent-team plugin the live harness actually executes",
+      "path": "marketplace/plugins/delivery-agent-team/skills/build-with-team/build-helpers",
+      "commit": "abdf045e73c93d44502b100ea8a4df2b6f8d2c65"
+    }
+  ],
+  "cross_check_note": "Dispatch-table command names (main()'s top-level switch + runFeedback's nested switch) are byte-for-byte identical between both baselines as of capture -- 29 top-level names plus feedback's 3 sub-verbs, verified by direct source diff and by a case-label regex extraction over each main.go independently (see capture.py). Two subcommands diverge in FLAG-LEVEL and EXIT-CODE substance, not in enumeration: self-check and record. Both diverge because M0's roster-tiering work (self-check) and M0.P8's writer fail-fast (record) landed on the canonical module but were never vendored into the plugin's embedded copy -- confirmed empirically below and recorded as a flagged, uncorrected finding, not silently reconciled. This fixture pins the CANONICAL (post-M0) shape as the frozen contract per SC-MODELROSTER's argv note; the plugin-embedded copy's pre-M0 shape is the divergence a future sync (or the frozen-API decomposition itself) must close.",
+  "baseline_divergences": [
+    {
+      "command": "self-check",
+      "finding": "Canonical adds a --band NAME flag (roster-resolved band lookup) mutually exclusive with the four literal --floor-*/--ceiling-* flags, and a roster_stale JSON field + exit code 3. The plugin-embedded copy still requires the four literal flags unconditionally and has no --band flag, no roster_stale field, and no exit 3 -- passing --band to it is an unrecognized-flag usage error (exit 2).",
+      "verified": "Empirically, both binaries built from their respective sources: canonical accepts `self-check --band bogus` (exits 2, unrecognized-band message); plugin-embedded rejects the same invocation with `flag provided but not defined: -band` (exit 2, different message, same code)."
+    },
+    {
+      "command": "record",
+      "finding": "Canonical refuses (exit 2, empty stdout) any write that would leave a task status=done with no commit SHA on the resulting row. The plugin-embedded copy still persists that write (exit 0, full execution.json on stdout) -- pre-M0.P8 behavior.",
+      "verified": "Empirically, `record <exec> <id> --status done` with no --commit and none previously recorded: canonical exits 2 with 'status=done requires field \"commit\"'; plugin-embedded exits 0 and prints the updated execution.json with the task persisted done and no commit."
+    }
+  ],
+  "global_exit_code_legend": {
+    "0": "ok / success",
+    "1": "a command-specific business check failed (ok:false, abort, structural refusal, or off-surface/violation finding) — never a usage error",
+    "2": "usage or IO error: missing/extra positional, unreadable or malformed input file, a required flag left empty, or a flag.FlagSet parse error (unrecognized flag / bad value) — this last case applies uniformly to every subcommand that defines flags, on top of the per-command exit_codes below",
+    "3": "roster-stale (self-check only, canonical/post-M0 shape) — the observed session model or a band endpoint is absent from the model roster"
+  },
+  "commands": [
+    {
+      "name": "render",
+      "invoked_by": ["plan-with-team/SKILL.md Phase 1 step 4 (derive: renders plan.md)", "plan-with-team/SKILL.md Phase 1 step 5 (reconcile: re-render)", "build-with-team/SKILL.md 'The three documents' table credits it as plan.md's author"],
+      "positionals": [{"name": "plan.json", "required": true}],
+      "flags": [
+        {"name": "slug", "type": "string", "default": "", "required": false, "description": "project slug (emits plan.md frontmatter when set)"},
+        {"name": "topic", "type": "string", "default": "", "required": false, "description": "topic tag"},
+        {"name": "updated", "type": "string", "default": "", "required": false, "description": "plan.md updated timestamp"}
+      ],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "text", "schema": "plan.md rendered Markdown"},
+      "exit_codes": {"0": "ok", "2": "missing positional; plan.json unreadable or invalid JSON"}
+    },
+    {
+      "name": "diff",
+      "invoked_by": ["plan-with-team/SKILL.md 'Plan ops' + Report section (reconcile route: diff shown to the operator for approval)"],
+      "positionals": [{"name": "old-plan.json", "required": true}, {"name": "new-plan.json", "required": true}],
+      "flags": [],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "{carried, changed, added, removed}"},
+      "exit_codes": {"0": "ok", "2": "missing positional; either plan unreadable or invalid JSON"}
+    },
+    {
+      "name": "check-tiers",
+      "invoked_by": ["shipped CLI surface; not directly called by either skill's documented procedure -- plan-with-team's `validate` gate already reports an invalid (model,effort) combo internally, so no standalone check-tiers callsite was found"],
+      "positionals": [{"name": "plan.json", "required": true}],
+      "flags": [],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.TierResult {ok bool, issues []{id, issue}}"},
+      "exit_codes": {
+        "0": "ok:true — every task's (model, effort) combo is within documented tier availability",
+        "1": "ok:false — a task names an unknown model/effort, or pairs an effort with a model that does not support that tier (effort availability is roster-sourced per SC-MODELROSTER)",
+        "2": "missing positional; plan.json unreadable or invalid JSON"
+      }
+    },
+    {
+      "name": "hash",
+      "invoked_by": ["shipped CLI surface; no callsite found in either skill's documented procedure"],
+      "positionals": [{"name": "plan.json", "required": true}],
+      "flags": [],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "{<taskId>: <contentHash>, ...}"},
+      "exit_codes": {"0": "ok", "2": "missing positional; plan.json unreadable or invalid JSON"}
+    },
+    {
+      "name": "validate",
+      "invoked_by": ["plan-with-team/SKILL.md Phase 1 step 4 (derive: the one validation gate before render/init-exec) and step 5 (reconcile: re-validate the regenerated plan)"],
+      "positionals": [{"name": "plan.json", "required": true}],
+      "flags": [],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.ValidationResult {ok bool, errors []string, warnings []string}"},
+      "exit_codes": {
+        "0": "ok:true — plan satisfies plan-schema.json's hard constraints plus id-uniqueness/nesting/dep-reference/cycle/tier-combo integrity checks",
+        "1": "ok:false — structural errors (missing goal/success_criteria/milestones, bad id pattern, duplicate id, dangling dep reference, dependency cycle, invalid (model,effort) or deliverable_kind, etc.); unknown root keys are warnings only and do not flip ok to false",
+        "2": "missing positional; plan.json unreadable (malformed JSON is instead surfaced as an ok:false error in stdout, exit 1, not exit 2)"
+      }
+    },
+    {
+      "name": "classify",
+      "invoked_by": ["build-with-team/SKILL.md Phase 1 (routes: acts on `ready` only)", "plan-with-team/SKILL.md Phase 1 (routes: interactive-build/resume-draft/derive/reconcile/ready)"],
+      "positionals": [{"name": "project-dir", "required": true}],
+      "flags": [],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.ClassifyResult {design, plan, execution, route}"},
+      "exit_codes": {"0": "always — a missing design.md/plan.json/execution.json/execution.md under project-dir degrades to present:false in the result, never a failure", "2": "missing positional"}
+    },
+    {
+      "name": "escalate",
+      "invoked_by": ["build-with-team/SKILL.md Phase 2 step 4 'Escalation dispatch' (the sole gate to the magistrate for the four closed named triggers)"],
+      "positionals": [],
+      "flags": [
+        {"name": "condition", "type": "string", "default": "", "required": true, "description": "observed condition label (matched exactly against the closed trigger set)"},
+        {"name": "touches-success-criteria", "type": "bool", "default": false, "required": false, "description": "delta touches design success_criteria (forces plan-with-team hand-back)"},
+        {"name": "touches-scope", "type": "bool", "default": false, "required": false, "description": "delta touches design scope (forces plan-with-team hand-back)"}
+      ],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.ClassifyEscalation result {route: magistrate|plan-with-team|no-escalation, tier, ...}"},
+      "exit_codes": {"0": "always on successful parse — an unmatched condition routes to no-escalation in the JSON body, it is not a failure exit", "2": "--condition empty"}
+    },
+    {
+      "name": "classify-scope",
+      "invoked_by": ["shipped CLI surface; no callsite found — both skills route design-level deltas through `escalate`'s --touches-* flags, not this standalone form"],
+      "positionals": [],
+      "flags": [
+        {"name": "touches-success-criteria", "type": "bool", "default": false, "required": false, "description": "delta touches design success_criteria"},
+        {"name": "touches-scope", "type": "bool", "default": false, "required": false, "description": "delta touches design scope"}
+      ],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "{route: plan-with-team|in-scope, ...}"},
+      "exit_codes": {"0": "always — no required flags, no failure path besides a flag parse error"}
+    },
+    {
+      "name": "init-exec",
+      "invoked_by": ["plan-with-team/SKILL.md Phase 1 step 4 (derive: first instantiation)", "build-with-team/SKILL.md Phase 2 step 3 (fresh build only: re-seed launch run config, never on resume)"],
+      "positionals": [{"name": "plan.json", "required": true}],
+      "flags": [
+        {"name": "slug", "type": "string", "default": "", "required": true, "description": "project slug (required); enforced in bh.InitExec, not by the flag parse itself — an empty --slug still parses, then dies exit 2 from the returned error"},
+        {"name": "name", "type": "string", "default": "", "required": false, "description": "execution doc name"},
+        {"name": "topic", "type": "string", "default": "", "required": false, "description": "topic tag"},
+        {"name": "design-updated", "type": "string", "default": "", "required": false, "description": "source design.md updated timestamp"},
+        {"name": "plan-updated", "type": "string", "default": "", "required": false, "description": "source plan.json updated timestamp"},
+        {"name": "pause", "type": "string", "default": "", "required": false, "description": "pause mode: task|phase|milestone|none"},
+        {"name": "budget", "type": "string", "default": "", "required": false, "description": "unlimited | $<amount>"},
+        {"name": "rates", "type": "string", "default": "", "required": false, "description": "list-price | negotiated"},
+        {"name": "override", "type": "string", "default": "", "required": false, "description": "active override directive"},
+        {"name": "at", "type": "string", "default": "", "required": false, "description": "timestamp override (default: now UTC)"}
+      ],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.ExecState (execution.json)"},
+      "exit_codes": {"0": "ok", "2": "missing positional; plan.json unreadable/invalid JSON; --slug empty; --budget in an unparseable form"}
+    },
+    {
+      "name": "render-exec",
+      "invoked_by": ["plan-with-team/SKILL.md Phase 1 step 4 (derive) and step 5 (reconcile: re-render)", "build-with-team/SKILL.md Phase 2 (after every `record` call, both batch-of-1 and batch>1 paths)"],
+      "positionals": [{"name": "execution.json", "required": true}, {"name": "plan.json", "required": true}],
+      "flags": [],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "text", "schema": "execution.md rendered Markdown"},
+      "exit_codes": {"0": "ok", "2": "missing positional; either file unreadable or invalid JSON"}
+    },
+    {
+      "name": "next",
+      "invoked_by": ["shipped CLI surface; no callsite found — build-with-team's documented build loop calls `batch` exclusively, including for a single-task candidate pool"],
+      "positionals": [{"name": "execution.json", "required": true}, {"name": "plan.json", "required": true}],
+      "flags": [],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.NextTaskResult {task}|{done}|{blocked}, plus orchestrator_only when set"},
+      "exit_codes": {"0": "a task/done/blocked result was produced with orchestrator_only nil", "1": "structural refusal — orchestrator_only is non-nil: the orchestrator must run that task inline, never via this dispatch path", "2": "missing positional; either file unreadable or invalid JSON"}
+    },
+    {
+      "name": "batch",
+      "invoked_by": ["build-with-team/SKILL.md Phase 2 step 4 (the build loop's single call site, repeated per pause-boundary-scoped fan-out)"],
+      "positionals": [{"name": "execution.json", "required": true}, {"name": "plan.json", "required": true}],
+      "flags": [
+        {"name": "max", "type": "int", "default": 4, "required": false, "description": "max tasks to dispatch in one fan-out (default 4; silently clamped to the hard cap bh.MaxBatch=8 when exceeded)"}
+      ],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.BatchResult {tasks}|{done}|{blocked}, plus orchestrator_only when set"},
+      "exit_codes": {"0": "orchestrator_only nil", "1": "structural refusal — orchestrator_only non-nil, same hard-error contract as next", "2": "missing positional; either file unreadable or invalid JSON"}
+    },
+    {
+      "name": "verify-surface",
+      "invoked_by": ["build-with-team/SKILL.md Phase 2 step 4, batch-of-1 (pre-commit, one task id, --root the task worktree) and batch>1 (pre-commit per task, and post-merge with comma-joined ids rooted at the merged build-worktree tip)"],
+      "positionals": [{"name": "plan.json", "required": true}, {"name": "taskId[,taskId...]", "required": true}],
+      "flags": [
+        {"name": "root", "type": "string", "default": ".", "required": false, "description": "directory the file_surface paths are relative to (a task's own worktree at pre-commit, or the build worktree post-merge)"}
+      ],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.VerifyMergedSurface result {ok bool, violations []...}"},
+      "exit_codes": {"0": "ok:true — every declared file_surface entry, unioned across the listed task ids, matches disk (glob >=1 match, dir non-empty, required entries non-trivial)", "1": "ok:false — one or more declared entries fail their pinned match semantics", "2": "missing positional; one of the comma-separated task ids not found in plan.json"}
+    },
+    {
+      "name": "check-changed-surface",
+      "invoked_by": ["build-with-team/SKILL.md Phase 2 step 4, batch-of-1 and batch>1 (reverse direction: git-derived changed-set piped in via `--changed -`, run alongside verify-surface at every pre-commit site)"],
+      "positionals": [{"name": "plan.json", "required": true}, {"name": "taskId", "required": true}],
+      "flags": [
+        {"name": "changed", "type": "string", "default": "", "required": true, "description": "path to a newline-delimited changed-set (bare paths, e.g. git status --porcelain | cut -c4-), or - for stdin"}
+      ],
+      "mutual_exclusions": [],
+      "stdin": "one bare path per line, read ONLY when --changed is exactly \"-\"; otherwise --changed names a file and stdin is untouched",
+      "stdout": {"format": "json", "schema": "bh.VerifyChangedSetSubsetOfSurface result {ok bool, off_surface []string}"},
+      "exit_codes": {"0": "ok:true — every changed path is covered by taskId's declared file_surface (required or optional)", "1": "ok:false — one or more changed paths are off-surface writes", "2": "missing positional; --changed empty; task id not found in plan.json; the changed-set file/stdin unreadable"}
+    },
+    {
+      "name": "record",
+      "invoked_by": ["build-with-team/SKILL.md Phase 2 step 4 (in-progress/done/failed/blocked, both batch-of-1 and batch>1 paths)"],
+      "positionals": [{"name": "execution.json", "required": true}, {"name": "taskId", "required": true}],
+      "flags": [
+        {"name": "status", "type": "string", "default": "", "required": false, "description": "not-started|in-progress|blocked|failed|done|superseded"},
+        {"name": "test", "type": "string", "default": "", "required": false, "description": "PASS|FAIL"},
+        {"name": "review", "type": "string", "default": "", "required": false, "description": "ACCEPT|FIX-APPLIED|RETURN"},
+        {"name": "commit", "type": "string", "default": "", "required": false, "description": "short SHA"},
+        {"name": "cost", "type": "float64", "default": 0, "required": false, "description": "task cost in USD"},
+        {"name": "tokens-out", "type": "int64", "default": 0, "required": false, "description": "measured output tokens for this task"},
+        {"name": "input-tokens", "type": "int64", "default": 0, "required": false, "description": "this task's measured input tokens"},
+        {"name": "cache-write-tokens", "type": "int64", "default": 0, "required": false, "description": "this task's measured cache-write (cache-creation) tokens"},
+        {"name": "cache-read-tokens", "type": "int64", "default": 0, "required": false, "description": "this task's measured cache-read tokens"},
+        {"name": "usage-turns", "type": "int64", "default": 0, "required": false, "description": "this task's measured turn count (for the usage record)"},
+        {"name": "note", "type": "string", "default": "", "required": false, "description": "row note"},
+        {"name": "run-id", "type": "string", "default": "", "required": false, "description": "Workflow runId (same-session fast-resume)"},
+        {"name": "override", "type": "string", "default": "", "required": false, "description": "active override directive"},
+        {"name": "at", "type": "string", "default": "", "required": false, "description": "timestamp override (default: now UTC)"}
+      ],
+      "mutual_exclusions": [],
+      "note": "every flag is optional; only a flag the caller actually SET (fs.Visit) is applied — omitted flags leave the corresponding field unchanged. Any one of input-tokens/cache-write-tokens/cache-read-tokens/tokens-out/usage-turns being set persists the full four-class Usage record. CANONICAL ONLY (post-M0.P8): a write that would leave the resulting row status=done with no commit is refused before any mutation — see baseline_divergences.",
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.ExecState (execution.json)"},
+      "exit_codes": {"0": "ok", "2": "missing positional; execution.json unreadable/invalid JSON; taskId not found; an out-of-set --status/--test/--review value; canonical only — the resulting row would be status=done with no commit"}
+    },
+    {
+      "name": "log-note",
+      "invoked_by": ["build-with-team/SKILL.md Phase 0 (signing-mode note), Phase 2 step 4 (phase/milestone gate results, magistrate resolution notes), Phase 2 step 5 (plan-acceptance verdict)"],
+      "positionals": [{"name": "execution.json", "required": true}],
+      "flags": [
+        {"name": "note", "type": "string", "default": "", "required": true, "description": "plan-level log entry"},
+        {"name": "at", "type": "string", "default": "", "required": false, "description": "timestamp override (default: now UTC)"}
+      ],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.ExecState (execution.json)"},
+      "exit_codes": {"0": "ok", "2": "missing positional; --note empty; execution.json unreadable/invalid JSON"}
+    },
+    {
+      "name": "reconcile-exec",
+      "invoked_by": ["plan-with-team/SKILL.md Phase 1 step 5 (reconcile route)", "build-with-team/SKILL.md Phase 2 step 4 (local-delta-replan, performed by the magistrate)", "agents/magistrate.md (amend/restack for an accepted feedback-gate slice)"],
+      "positionals": [{"name": "execution.json", "required": true}, {"name": "old-plan.json", "required": true}, {"name": "new-plan.json", "required": true}],
+      "flags": [
+        {"name": "design-updated", "type": "string", "default": "", "required": false, "description": "new design.md updated timestamp"},
+        {"name": "plan-updated", "type": "string", "default": "", "required": false, "description": "new plan.json updated timestamp"},
+        {"name": "at", "type": "string", "default": "", "required": false, "description": "timestamp override (default: now UTC)"}
+      ],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.ExecState (execution.json)"},
+      "exit_codes": {"0": "ok", "2": "missing positional; any of the three files unreadable/invalid JSON"}
+    },
+    {
+      "name": "archive",
+      "invoked_by": ["shipped CLI surface; explicit, operator-invoked only per main.go's own doc comment — never wired into build-with-team's loop (next/batch/SKILL.md never call it)"],
+      "positionals": [{"name": "plan.json", "required": true}, {"name": "execution.json", "required": true}, {"name": "archive.json", "required": true}],
+      "flags": [
+        {"name": "milestone", "type": "string", "default": "", "required": true, "description": "comma-separated milestone id(s) to archive; every task under each must be done|superseded"},
+        {"name": "at", "type": "string", "default": "", "required": false, "description": "timestamp override (default: now UTC)"}
+      ],
+      "mutual_exclusions": [],
+      "note": "the ONE command that writes multiple files itself (archive.json, then execution.json, then plan.json, each via write-temp-then-rename) rather than printing one JSON doc for the caller's own atomic swap.",
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "{archived []string, skipped []string (omitempty)}"},
+      "exit_codes": {"0": "ok — writes all three files", "2": "missing positional; --milestone empty; plan/execution/archive unreadable or invalid JSON; a named milestone has a task that is not done|superseded (refuses with no partial write)"}
+    },
+    {
+      "name": "migrate-project",
+      "invoked_by": ["shipped CLI surface; operator/maintainer-invoked schema migration (v1->v2), not part of either skill's documented build/plan procedure"],
+      "positionals": [{"name": "plan.json", "required": true}, {"name": "execution.json", "required": true}],
+      "flags": [
+        {"name": "dry-run", "type": "bool", "default": false, "required": false, "description": "preview the exact changes without writing either file"}
+      ],
+      "mutual_exclusions": [],
+      "note": "reads execution.json RAW (no on-load schema migration) so the report can see the true on-disk schema_version. Lossless and idempotent; writes both files only when there are changes AND --dry-run is off.",
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.MigrateReport {already_v2, dry_run, changes, warnings}"},
+      "exit_codes": {"0": "ok (writes files unless already-v2 or --dry-run)", "2": "missing positional; either file unreadable/invalid JSON; an internal migration error"}
+    },
+    {
+      "name": "usage",
+      "invoked_by": ["shipped CLI surface; no bare callsite found — record-usage performs its own transcript parse internally rather than shelling out to this subcommand"],
+      "positionals": [{"name": "transcript.jsonl", "required": true}],
+      "flags": [],
+      "mutual_exclusions": [],
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.Usage {input, output, cache, total, turns} — true tokens for the whole session incl. every discovered subagent transcript"},
+      "exit_codes": {"0": "ok", "2": "missing positional; transcript unreadable/unresolvable; parse failure (this command has no exit-1 path)"}
+    },
+    {
+      "name": "record-usage",
+      "invoked_by": ["build-with-team/SKILL.md Phase 0 setup note, Phase 2 step 4 ('Refresh true-usage at each gate'), Phase 2 step 5 (finish, with --final)"],
+      "positionals": [{"name": "execution.json", "required": true}],
+      "flags": [
+        {"name": "transcript", "type": "string", "default": "", "required": true, "description": "main session transcript JSONL path; subagent transcripts are discovered alongside it"},
+        {"name": "specs", "type": "string", "default": "", "required": false, "description": "anthropic-specifications.json path (default: resolved next to the executable)"},
+        {"name": "final", "type": "bool", "default": false, "required": false, "description": "finish-time authoritative snapshot: re-parse every transcript in full, ignoring prior watermarks — mandatory at finish"},
+        {"name": "baseline-capture", "type": "bool", "default": false, "required": false, "description": "this run IS a baseline-capture measurement (e.g. a model-tier comparison); an unresolved transcript fails the run instead of writing the non-fatal cost_status:unresolved marker"},
+        {"name": "at", "type": "string", "default": "", "required": false, "description": "timestamp override (default: now UTC)"}
+      ],
+      "mutual_exclusions": [],
+      "note": "this is the pricing/rates ingestion surface: it loads the rate table from --specs (list-price or negotiated per run_config.rates), best-effort (an unreadable/invalid specs file logs a warning and proceeds with zero-cost token buckets rather than blocking the run), then folds per-model true-cost accounting into execution.json's run_config.",
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.ExecState (execution.json), with run_config.accounting folded in"},
+      "exit_codes": {
+        "0": "ok — accounting recorded, or a non-baseline-capture run with an unresolved main transcript (writes the non-fatal cost_status:unresolved marker instead of failing)",
+        "1": "--baseline-capture is set AND the main transcript is unresolved — a baseline-capture measurement cannot tolerate a silently-degraded snapshot",
+        "2": "missing positional; --transcript empty; execution.json unreadable/invalid JSON; a resolved transcript that fails to parse"
+      }
+    },
+    {
+      "name": "attribute",
+      "invoked_by": ["build-with-team/SKILL.md Phase 2 step 4, batch>1 ('Attribute measured per-task cost')"],
+      "positionals": [{"name": "execution.json", "required": true}],
+      "flags": [
+        {"name": "transcript", "type": "string", "default": "", "required": true, "description": "main session transcript JSONL path; subagent transcripts are discovered alongside it"},
+        {"name": "tasks", "type": "string", "default": "", "required": false, "description": "comma-separated known task IDs to match against (default: every task ID in execution.json)"},
+        {"name": "specs", "type": "string", "default": "", "required": false, "description": "anthropic-specifications.json path (default: resolved next to the executable)"},
+        {"name": "at", "type": "string", "default": "", "required": false, "description": "timestamp override (default: now UTC)"}
+      ],
+      "mutual_exclusions": [],
+      "note": "the pricing surface's per-task counterpart to record-usage: same --specs rate-table loading (list-price or negotiated), applied per subagent transcript instead of the whole session.",
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.AttributeResult {tasks: {id: {cost_usd, cost_attribution:\"measured\", ...}}, even_split, unmappable}"},
+      "exit_codes": {"0": "ok — always on successful parse; a transcript mapping to no known task falls into the flagged even_split pool rather than failing", "2": "missing positional; --transcript empty; execution.json unreadable/invalid JSON; a discovered subagent transcript that fails to parse"}
+    },
+    {
+      "name": "retrieve",
+      "invoked_by": ["build-with-team/SKILL.md (outline for orientation; task/field on demand — the working-set digest, Cardinal rules)", "plan-with-team/SKILL.md (outline for the plan-approve gate; task/field on demand — same Cardinal rule)"],
+      "positionals": [{"name": "plan.json|execution.json|archive.json", "required": true}],
+      "flags": [
+        {"name": "level", "type": "string", "default": "", "required": true, "description": "outline|milestone|phase|task|field; enforced downstream (empty/unknown yields an error from the Retrieve* function, not a main.go pre-check)"},
+        {"name": "id", "type": "string", "default": "", "required": false, "description": "entity id — required for level milestone|phase|task|field (enforced downstream, per level)"},
+        {"name": "field", "type": "string", "default": "", "required": false, "description": "field name — required for level field (enforced downstream)"}
+      ],
+      "mutual_exclusions": [],
+      "note": "doc shape (plan vs execution vs archive) is sniffed from content, never the filename: archive.json's top-level \"schema\" key is checked first (isArchiveDoc), then presence-of-\"milestones\" forks plan vs execution (isExecutionDoc).",
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "level-dependent: []OutlineEntry | GroupView | Milestone|Phase|Task|ExecTask|ArchivedTask | FieldValue"},
+      "exit_codes": {"0": "ok", "2": "missing positional; doc unreadable/invalid JSON; empty/unknown --level; missing --id/--field for a level that requires it; an id/field not found"}
+    },
+    {
+      "name": "self-check",
+      "invoked_by": ["build-with-team/SKILL.md Phase 0 (Sonnet-tier band, resolved via --band since M0.P3.T2 — CANONICAL shape)", "plan-with-team/SKILL.md Phase 0 (Opus-tier band, literal --floor-*/--ceiling-*)"],
+      "positionals": [],
+      "flags": [
+        {"name": "transcript", "type": "string", "default": "", "required": false, "description": "main session transcript JSONL path (model source: latest message.model wins over $ANTHROPIC_MODEL; also the identity-guard source when --session-id/--scratchpad-path is given)"},
+        {"name": "settings", "type": "string", "default": ".claude/settings.json", "required": false, "description": "settings.json path (effortLevel fallback when $CLAUDE_EFFORT is unset)"},
+        {"name": "floor-model", "type": "string", "default": "", "required": true, "description": "band floor model (required unless --band is set) — CANONICAL"},
+        {"name": "floor-effort", "type": "string", "default": "", "required": true, "description": "band floor effort (required unless --band is set) — CANONICAL"},
+        {"name": "ceiling-model", "type": "string", "default": "", "required": true, "description": "band ceiling model (required unless --band is set) — CANONICAL"},
+        {"name": "ceiling-effort", "type": "string", "default": "", "required": true, "description": "band ceiling effort (required unless --band is set) — CANONICAL"},
+        {"name": "band", "type": "string", "default": "", "required": false, "description": "CANONICAL ONLY (M0.P3.T2, post-M0): named roster-resolved band (e.g. plan, build), in place of the four literal --floor-*/--ceiling-* flags; mutually exclusive with them"},
+        {"name": "session-id", "type": "string", "default": "", "required": false, "description": "identity guard: this session's own id (UUID) — verifies --transcript's trailing lines name THIS session, hard-abort on mismatch; mutually exclusive with --scratchpad-path; omit both to skip the guard entirely"},
+        {"name": "scratchpad-path", "type": "string", "default": "", "required": false, "description": "identity guard: a path under this session's own scratchpad dir (session id parsed from it); mutually exclusive with --session-id; omit both to skip the guard entirely"}
+      ],
+      "mutual_exclusions": [["session-id", "scratchpad-path"], ["band", "floor-model", "floor-effort", "ceiling-model", "ceiling-effort"]],
+      "note": "CANONICAL (post-M0) shape: band and identity-guard enforcement are independent — EITHER --band OR all four literal --floor-*/--ceiling-* flags is required, never both, never neither; --session-id/--scratchpad-path are both optional and mutually exclusive with each other, opting into the identity guard only when either is set. Model resolution: transcript latest message.model, fallback $ANTHROPIC_MODEL. Effort: $CLAUDE_EFFORT, fallback settings.json effortLevel; an undetectable effort degrades to a model-only band check (never a hard error). See baseline_divergences: the plugin-embedded copy has no --band flag and always requires the four literal flags.",
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.SelfCheckResult {model, effort, effort_detected, abort, roster_stale, warnings, reason, session_id_checked, session_id_match}"},
+      "exit_codes": {
+        "0": "in band (and identity verified, or the guard was not requested)",
+        "1": "abort:true — below the floor, and/or (when the identity guard is requested) a session-id mismatch",
+        "2": "canonical: neither/both of --band and the literal flag set given, or an unrecognized --band name; plugin-embedded: any of the four literal flags missing (no --band form exists); both: model undeterminable (transcript unreadable/model-less AND $ANTHROPIC_MODEL unset); with the identity guard requested: both/neither of --session-id/--scratchpad-path set, an unparseable/invalid session id or scratchpad path, --transcript missing, or --transcript unreadable/empty/all-malformed/naming no sessionId on any line",
+        "3": "CANONICAL ONLY: roster-stale — the observed model or a band endpoint is absent from the model roster"
+      }
+    },
+    {
+      "name": "resolve-transcript",
+      "invoked_by": ["shipped CLI surface; no callsite found — both skills resolve $TRANSCRIPT via a filesystem newest-jsonl scan under ~/.claude/projects/<cwd-slug>/, not this subcommand"],
+      "positionals": [],
+      "flags": [
+        {"name": "session-id", "type": "string", "default": "", "required": false, "description": "explicit session id (UUID); mutually exclusive with --scratchpad-path"},
+        {"name": "scratchpad-path", "type": "string", "default": "", "required": false, "description": "a path under the session's own scratchpad dir (.../<cwd-slug>/<session-id>/scratchpad[/...]); cwd-slug AND session id are both parsed from it; mutually exclusive with --session-id"},
+        {"name": "cwd", "type": "string", "default": "", "required": false, "description": "working directory to slug for the projects-dir lookup, used ONLY with --session-id (default: the process's own cwd); ignored with --scratchpad-path"},
+        {"name": "projects-dir", "type": "string", "default": "", "required": false, "description": "root of the Claude Code projects tree (default: $HOME/.claude/projects)"}
+      ],
+      "mutual_exclusions": [["session-id", "scratchpad-path"]],
+      "note": "exactly one of --session-id or --scratchpad-path is required (enforced downstream, not by the flag parse itself). Deterministic id-based path join — never a directory mtime scan. There is no exit 1: this command either resolves a real path or cannot resolve one.",
+      "stdin": "none",
+      "stdout": {"format": "text", "schema": "the single resolved transcript path, one line"},
+      "exit_codes": {"0": "the deterministically-resolved path exists on disk", "2": "neither/both of --session-id/--scratchpad-path set; unparseable/invalid session id or scratchpad path; unresolvable cwd/$HOME (only reached via --session-id without --projects-dir); the resolved path does not exist on disk"}
+    },
+    {
+      "name": "feedback add",
+      "invoked_by": ["build-with-team/SKILL.md Phase 2 step 6 (feedback wrap-up)", "plan-with-team/SKILL.md Phase 2 step 4 (feedback wrap-up)"],
+      "positionals": [{"name": "feedback.json", "required": true}],
+      "flags": [
+        {"name": "title", "type": "string", "default": "", "required": true, "description": "short human name"},
+        {"name": "feedback", "type": "string", "default": "", "required": true, "description": "the feedback itself"},
+        {"name": "impact", "type": "int", "default": 0, "required": true, "description": "impact score 1-5"},
+        {"name": "urgency", "type": "int", "default": 0, "required": true, "description": "urgency score 1-5"},
+        {"name": "source-task", "type": "string", "default": "", "required": false, "description": "originating task id"},
+        {"name": "proposed-solution", "type": "string", "default": "", "required": false, "description": "proposed fix"},
+        {"name": "why-it-matters", "type": "string", "default": "", "required": false, "description": "why this matters / impact rationale"},
+        {"name": "at", "type": "string", "default": "", "required": false, "description": "timestamp override (default: now UTC)"}
+      ],
+      "mutual_exclusions": [],
+      "note": "--title/--feedback/--impact/--urgency requiredness is enforced inside bh.AddFeedback, not by the flag parse itself. A first-ever call against an absent feedback.json is treated as an empty, freshly-schema-stamped register, not an IO error. Writes feedback.json AND regenerates the sibling feedback.md mirror in the same call — the two can never diverge.",
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.FeedbackRegister (feedback.json)"},
+      "exit_codes": {"0": "ok — writes feedback.json and feedback.md", "2": "missing positional; a required field left empty/out-of-range; feedback.json present but invalid JSON"}
+    },
+    {
+      "name": "feedback list",
+      "invoked_by": ["consumed by the magistrate's threshold-gated reconcile-exec flow and the standing feedback-review milestone per both skills' 'Feedback register' section — no direct callsite inside build-with-team/plan-with-team's own step-by-step procedure"],
+      "positionals": [{"name": "feedback.json", "required": true}],
+      "flags": [
+        {"name": "by-task", "type": "string", "default": "", "required": false, "description": "filter to entries whose source task id exactly matches"},
+        {"name": "min-impact", "type": "int", "default": 0, "required": false, "description": "filter to entries with impact >= N"},
+        {"name": "min-urgency", "type": "int", "default": 0, "required": false, "description": "filter to entries with urgency >= N"}
+      ],
+      "mutual_exclusions": [],
+      "note": "read-only — never writes feedback.json or feedback.md. Filters compose with AND; omitting all three lists every entry.",
+      "stdin": "none",
+      "stdout": {"format": "text", "schema": "one \"<id> — <title>\" line per matching entry, ranked by criticality descending"},
+      "exit_codes": {"0": "ok (including zero matches — prints nothing)", "2": "missing positional; feedback.json present but invalid JSON"}
+    },
+    {
+      "name": "feedback gate",
+      "invoked_by": ["agents/magistrate.md (partitions the ranked plan_feedback register into {amend_now, deferred} before a local-delta-replan dispatch)"],
+      "positionals": [{"name": "feedback.json", "required": true}],
+      "flags": [
+        {"name": "plan", "type": "string", "default": "", "required": true, "description": "plan.json the feedback-review milestone is applied to"},
+        {"name": "threshold", "type": "int", "default": 0, "required": true, "description": "inclusive criticality floor for amend-now (>= amends, < defers)"}
+      ],
+      "mutual_exclusions": [],
+      "note": "read-only — writes nothing itself; the emitted plan field is the new-plan.json input a caller feeds to reconcile-exec.",
+      "stdin": "none",
+      "stdout": {"format": "json", "schema": "bh.FeedbackGateResult {threshold, amend_now, deferred, plan}"},
+      "exit_codes": {"0": "ok", "2": "missing positional; --plan empty; either JSON file present but invalid"}
+    },
+    {
+      "name": "help",
+      "aliases": ["-h", "--help"],
+      "invoked_by": ["build-with-team/SKILL.md Phase 0 preflight ('Verify \"$BUILD_HELPERS\" --help runs once')", "plan-with-team/SKILL.md Phase 0 preflight (same check)"],
+      "positionals": [],
+      "flags": [],
+      "mutual_exclusions": [],
+      "note": "no arguments given (bare `build-helpers`) prints the same usage text but exits 2, not 0 — the only difference between the bare-invocation path and the explicit help/-h/--help path.",
+      "stdin": "none",
+      "stdout": {"format": "text", "schema": "the full usage block (see help.txt in this directory) — printed to STDERR, not stdout"},
+      "exit_codes": {"0": "explicit help/-h/--help", "2": "bare invocation with zero args, or an unrecognized top-level command"}
+    }
+  ]
+}
