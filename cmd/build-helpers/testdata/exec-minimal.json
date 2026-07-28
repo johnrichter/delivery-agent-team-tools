@@ -1,0 +1,21 @@
+{
+  "schema": "execution-state/v1",
+  "schema_version": 3,
+  "project": "test",
+  "name": "Test",
+  "topic": "tooling",
+  "goal": "test",
+  "provenance": {"design_updated": "", "plan_updated": ""},
+  "started": "2026-07-03T18:00:00Z",
+  "updated": "2026-07-03T18:00:00Z",
+  "run_config": {
+    "pause_mode": "task",
+    "budget": "unlimited",
+    "budget_ceiling_usd": null,
+    "spent_usd": 0,
+    "tokens_out": 0,
+    "rates": "list-price"
+  },
+  "tasks": [],
+  "log": []
+}
