@@ -1,0 +1,51 @@
+{
+  "goal": "Fixed-project fixture for the plugin-swap no-observable-behavior-change proof: two surface-disjoint, dependency-free tasks that the batch helper must select together as one 2-element fan-out.",
+  "success_criteria": [
+    "`build-helpers batch` returns both tasks as a single 2-element batch under a none/phase boundary.",
+    "validate/init-exec/batch produce byte-identical stdout whether build-helpers was resolved from the fixture's embedded copy or from the provisioned binary."
+  ],
+  "milestones": [
+    {
+      "id": "M1",
+      "name": "Disjoint fan-out smoke",
+      "phases": [
+        {
+          "id": "M1.P1",
+          "name": "Two independent writes",
+          "tasks": [
+            {
+              "id": "M1.P1.T1",
+              "name": "Write the alpha output file",
+              "summary": "Write the alpha output file",
+              "deliverable": "out/alpha.txt containing the literal string 'alpha'.",
+              "model": "claude-sonnet-5",
+              "effort": "medium",
+              "test_strategy": "Confirm out/alpha.txt exists and equals 'alpha'.",
+              "acceptance": [
+                "out/alpha.txt exists and contains exactly 'alpha'."
+              ],
+              "file_surface": [
+                { "path": "out/alpha.txt", "required": true }
+              ]
+            },
+            {
+              "id": "M1.P1.T2",
+              "name": "Write the beta output file",
+              "summary": "Write the beta output file",
+              "deliverable": "out/beta.txt containing the literal string 'beta'.",
+              "model": "claude-sonnet-5",
+              "effort": "medium",
+              "test_strategy": "Confirm out/beta.txt exists and equals 'beta'.",
+              "acceptance": [
+                "out/beta.txt exists and contains exactly 'beta'."
+              ],
+              "file_surface": [
+                { "path": "out/beta.txt", "required": true }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
