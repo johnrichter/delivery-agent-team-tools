@@ -89,28 +89,29 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ steps.version.outputs.version }}"
-          mkdir -p dist
+          outdir="dist/${version}"
+          mkdir -p "$outdir"
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os="${target%/*}"
             arch="${target#*/}"
             bin="build-helpers"
             workdir="$(mktemp -d)"
             GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "${workdir}/${bin}" ./cmd/build-helpers
-            archive="dist/build-helpers_${version}_${os}_${arch}.tar.gz"
+            archive="${outdir}/build-helpers_${version}_${os}_${arch}.tar.gz"
             tar -czf "${archive}" -C "${workdir}" "${bin}"
             rm -rf "${workdir}"
           done
-          ( cd dist && sha256sum build-helpers_*.tar.gz | sort -k2 > checksums.txt )
-          ls -la dist
+          ( cd "$outdir" && sha256sum build-helpers_*.tar.gz | sort -k2 > checksums.txt )
+          ls -la "$outdir"
 
       - name: Publish the official release (per-OS/arch archives + checksums)
         if: ${{ github.event_name == 'push' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "${{ steps.version.outputs.tag }}" --title "${{ steps.version.outputs.tag }}" --generate-notes dist/*.tar.gz dist/checksums.txt
+        run: gh release create "${{ steps.version.outputs.tag }}" --title "${{ steps.version.outputs.tag }}" --generate-notes "dist/${{ steps.version.outputs.version }}"/*.tar.gz "dist/${{ steps.version.outputs.version }}"/checksums.txt
 
       - name: Dry-run summary
         if: ${{ github.event_name != 'push' }}
         run: |
           echo "dry-run: built archives + checksums for ${{ steps.version.outputs.tag }} - publish skipped"
-          ls -la dist
+          ls -la "dist/${{ steps.version.outputs.version }}"
