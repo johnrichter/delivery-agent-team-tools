@@ -245,3 +245,9 @@ tmp/
 **/.claude/settings.local.json
 # Claude Code git worktrees at the repo root
 .claude/worktrees/
+
+###############################################################################
+# Release build output — SC-DISTRIBUTION forbids committed binaries; every
+# archive ships through release.yml (CD), never the tree.
+###############################################################################
+/dist/
