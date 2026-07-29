@@ -9,11 +9,10 @@
 # workflow_dispatch run defaults to dry_run: true, so a change to this file
 # can be exercised without cutting a tag or touching GitHub Releases.
 #
-# go.mod `replace`s onto ../ai-shared-lib/go/* (see ci.yml's header).
-# actions/checkout refuses any path outside $GITHUB_WORKSPACE, so both repos
-# check out as workspace siblings (delivery-agent-team-tools, ai-shared-lib)
-# and every later step runs with working-directory: delivery-agent-team-tools,
-# which resolves the replace target the same way a local dev checkout does.
+# go.mod requires the claude-shared-tooling go/* modules at their real,
+# independently tagged versions (no local replace -- see ci.yml's header for
+# the GOPRIVATE + git-credential wiring this needs since that module is
+# private).
 #
 # The archive/checksum layout here (v<version>/<name>_<version>_<os>_<arch>.tar.gz
 # plus a shared v<version>/checksums.txt) is what plugin-swap/download-script.sh
@@ -46,6 +45,8 @@ jobs:
   build-and-publish:
     name: build-and-publish
     runs-on: ubuntu-latest
+    env:
+      GOPRIVATE: github.com/johnrichter/claude-shared-tooling
     defaults:
       run:
         working-directory: delivery-agent-team-tools
@@ -58,12 +59,8 @@ jobs:
         if: ${{ github.event_name == 'push' }}
         run: bash .github/workflows/scripts/tag-prefix.sh "${GITHUB_REF_NAME}"
 
-      - name: Checkout ai-shared-lib sibling (go.mod replace target)
-        uses: actions/checkout@v5
-        with:
-          repository: johnrichter/claude-shared-tooling
-          token: ${{ secrets.SIBLING_REPO_TOKEN }}
-          path: ai-shared-lib
+      - name: Git credential for private claude-shared-tooling module fetches
+        run: git config --global url."https://x-access-token:${{ secrets.SIBLING_REPO_TOKEN }}@github.com/johnrichter/claude-shared-tooling".insteadOf "https://github.com/johnrichter/claude-shared-tooling"
 
       - uses: actions/setup-go@v5
         with:
