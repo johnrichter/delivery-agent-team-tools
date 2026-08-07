@@ -25,7 +25,9 @@ type Result struct {
 // Verify applies file_surface's pinned match semantics against fsys, rooted at the task's
 // worktree: kind=file must exist as a non-directory; kind=glob must match >=1 entry
 // (doublestar dialect, so `**` recurses across separators); kind=dir must exist, be a
-// directory, and be non-empty. A Required entry (any kind) additionally demands its matched
+// directory, and be non-empty — its path may carry an optional trailing `/**` (stripped before
+// the directory check), so "some/dir" and "some/dir/**" are equivalent dir surfaces. A
+// Required entry (any kind) additionally demands its matched
 // content be non-trivial — non-zero byte size — so a task cannot fake completion with an empty
 // placeholder.
 func Verify(fsys fs.FS, entries []model.FileSurfaceEntry) Result {
@@ -82,7 +84,11 @@ func verifyGlob(fsys fs.FS, e model.FileSurfaceEntry, fail func(path, reason str
 }
 
 func verifyDir(fsys fs.FS, e model.FileSurfaceEntry, fail func(path, reason string)) {
-	info, err := fs.Stat(fsys, e.Path)
+	root, pattern := doublestar.SplitPattern(e.Path)
+	if pattern != "**" {
+		root = e.Path
+	}
+	info, err := fs.Stat(fsys, root)
 	if err != nil {
 		fail(e.Path, "directory does not exist: "+err.Error())
 		return
@@ -91,7 +97,7 @@ func verifyDir(fsys fs.FS, e model.FileSurfaceEntry, fail func(path, reason stri
 		fail(e.Path, "path exists but is not a directory")
 		return
 	}
-	children, err := fs.ReadDir(fsys, e.Path)
+	children, err := fs.ReadDir(fsys, root)
 	if err != nil {
 		fail(e.Path, "cannot read directory: "+err.Error())
 		return

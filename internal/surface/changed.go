@@ -40,7 +40,9 @@ func VerifyChangedSubsetOfSurface(changed []string, entries []model.FileSurfaceE
 	return res
 }
 
-// covers reports whether one declared file_surface entry covers changedPath, per its kind.
+// covers reports whether one declared file_surface entry covers changedPath, per its kind. A
+// kind=dir path may carry an optional trailing `/**`, stripped before the prefix check, so
+// "some/dir" and "some/dir/**" cover the same changed paths.
 func covers(e model.FileSurfaceEntry, changedPath string) bool {
 	p := path.Clean(strings.TrimSpace(e.Path))
 	switch e.Kind.Resolve() {
@@ -48,7 +50,11 @@ func covers(e model.FileSurfaceEntry, changedPath string) bool {
 		ok, err := doublestar.Match(p, changedPath)
 		return err == nil && ok
 	case model.FSDir:
-		return changedPath == p || strings.HasPrefix(changedPath, p+"/")
+		root, pattern := doublestar.SplitPattern(p)
+		if pattern != "**" {
+			root = p
+		}
+		return changedPath == root || strings.HasPrefix(changedPath, root+"/")
 	default:
 		return changedPath == p
 	}
